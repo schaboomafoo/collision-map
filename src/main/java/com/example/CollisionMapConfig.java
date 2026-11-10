@@ -39,7 +39,7 @@ public interface CollisionMapConfig extends Config
 	)
 	default Color tileColor()
 	{
-		return new Color(255, 0, 0, 80);
+		return new Color(255, 100, 0, 100);
 	}
 
 	@Alpha
@@ -50,7 +50,7 @@ public interface CollisionMapConfig extends Config
 	)
 	default Color wallColor()
 	{
-		return new Color(255, 165, 0, 220);
+		return new Color(255, 100, 0, 100);
 	}
 
 	@Range(
@@ -64,6 +64,6 @@ public interface CollisionMapConfig extends Config
 	)
 	default int wallThickness()
 	{
-		return 3;
+		return 2;
 	}
 }
