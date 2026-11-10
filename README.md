@@ -16,7 +16,7 @@ Open the RuneLite configuration panel, search for **Collision Map**, and customi
 
 ## Screenshots
 
-<!-- Add a screenshot of the plugin here -->
+<img width="1071" height="507" alt="image" src="https://github.com/user-attachments/assets/a3aa0104-e8ad-4058-b987-aaba84850136" />
 
 ## Installation
 
