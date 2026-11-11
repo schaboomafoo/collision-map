@@ -21,6 +21,9 @@ Open the RuneLite configuration panel and search for **Collision Map**.
 * **Mark objects:** Turn on click box outlines and labels for interactable objects, and choose which actions count (Open, Climb, Enter and so on).
 
 ## Screenshots
+<img width="1000" height="502" alt="image" src="https://github.com/user-attachments/assets/4b779157-be44-49c4-94e0-a198d7768067" />
+<img width="1002" height="502" alt="image" src="https://github.com/user-attachments/assets/57c9f56b-1c0c-4959-8073-04a260cccc9a" />
+<img width="1005" height="501" alt="image" src="https://github.com/user-attachments/assets/d3bdc5a3-8076-4887-bc5d-60796e921c58" />
 
 ## Installation
 
