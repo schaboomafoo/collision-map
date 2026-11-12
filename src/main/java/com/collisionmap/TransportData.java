@@ -28,22 +28,16 @@ public class TransportData
     public static final class Transport
     {
         public final int ox, oy, plane, dx, dy;
-        public final String option, target;
-        public final int objectId;
         private final Skill[] skills;
         private final int[] levels;
 
-        Transport(int ox, int oy, int plane, int dx, int dy, String option, String target, int objectId,
-                  Skill[] skills, int[] levels)
+        Transport(int ox, int oy, int plane, int dx, int dy, Skill[] skills, int[] levels)
         {
             this.ox = ox;
             this.oy = oy;
             this.plane = plane;
             this.dx = dx;
             this.dy = dy;
-            this.option = option;
-            this.target = target;
-            this.objectId = objectId;
             this.skills = skills;
             this.levels = levels;
         }
@@ -104,9 +98,9 @@ public class TransportData
 
     private static Transport parse(String line)
     {
-        // ox oy plane dx dy option target objectId skills
+        // ox oy plane dx dy skills
         String[] c = line.split("\t", -1);
-        if (c.length < 8)
+        if (c.length < 5)
         {
             return null;
         }
@@ -121,9 +115,9 @@ public class TransportData
 
             List<Skill> skills = new ArrayList<>();
             List<Integer> levels = new ArrayList<>();
-            if (c.length > 8 && !c[8].isEmpty())
+            if (c.length > 5 && !c[5].isEmpty())
             {
-                for (String token : c[8].split(";"))
+                for (String token : c[5].split(";"))
                 {
                     // "25 Agility". Anything else (e.g. "Max Quest") is ignored, i.e. treated as met.
                     String[] parts = token.trim().split(" ", 2);
@@ -146,7 +140,7 @@ public class TransportData
                 }
             }
 
-            return new Transport(ox, oy, plane, dx, dy, c[5], c[6], Integer.parseInt(c[7]),
+            return new Transport(ox, oy, plane, dx, dy,
                 skills.toArray(new Skill[0]), levels.stream().mapToInt(Integer::intValue).toArray());
         }
         catch (NumberFormatException e)
