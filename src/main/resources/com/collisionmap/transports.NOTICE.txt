@@ -1,7 +1,7 @@
 transports.tsv is derived from the transport tables of the Shortest Path plugin
 https://github.com/Skretzo/shortest-path (src/main/resources/transports/transports.tsv and
 agility_shortcuts.tsv). Rows that change plane or span more than 52 tiles were removed and the
-columns were trimmed; the origin, destination, menu text, object id and skill requirement values are unchanged.
+columns were trimmed to origin, destination and skill requirement; those values are unchanged.
 
 That project is distributed under the following license, reproduced as it appears in its repository:
 
