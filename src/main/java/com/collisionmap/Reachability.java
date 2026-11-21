@@ -10,12 +10,14 @@ import net.runelite.api.CollisionDataFlag;
 /**
  * Flood fill over the scene's collision flags, starting at the player's tile.
  *
- * <p>Tiles you can walk to get tier {@link #REACHED}. Doors and gates on the edge of that area are
- * recorded as {@link Link}s so the overlay can colour them, but the fill doesn't go through them.
+ * <p>The fill works in "hops". Hop 0 is everything you can walk to right now. Each door, gate or
+ * shortcut that leads out of that area is a passage; hop 1 is everything on the far side of those
+ * passages, hop 2 the far side of the passages found in hop 1, and so on up to {@code maxHops}.
+ * A tile's {@link Result#tier} is {@code hop + 1}, so 0 ({@link #NONE}) means "not reached".
  *
- * <p>Instead, any separate walkable area that comes within {@code nearbyRange} tiles (straight
- * line, ignoring walls) of your area is filled too, with tier {@link #NEARBY}. That catches the
- * other side of a door, fence or river without knowing which object or shortcut leads there.
+ * <p>Optionally, any separate walkable area that comes within {@code nearbyRange} tiles (straight
+ * line, ignoring walls) of the hop areas is filled too, with tier {@link #NEARBY}. That catches the
+ * other side of a fence or river without needing to know which object or shortcut leads there.
  *
  * <p>Only cardinal steps are needed. OSRS only allows a diagonal step when both of the adjacent
  * cardinal steps are also open, so a cardinal fill reaches exactly the same tiles.
@@ -26,8 +28,6 @@ import net.runelite.api.CollisionDataFlag;
 public final class Reachability
 {
     public static final byte NONE = 0;
-    /** Tier of a tile you can walk to. */
-    public static final byte REACHED = 1;
     /** Tier of a nearby area that was found by distance rather than through a passage. */
     public static final byte NEARBY = -1;
 
@@ -66,11 +66,17 @@ public final class Reachability
         return (flag & CollisionDataFlag.BLOCK_MOVEMENT_FULL) != 0;
     }
 
-    /** Where doors and gates are. Implemented by {@link PassageIndex}. */
+    /** Where passages come from. Implemented by {@link PassageIndex}. */
     public interface Passages
     {
         Passages NONE = new Passages()
         {
+            @Override
+            public int[] from(int x, int y)
+            {
+                return null;
+            }
+
             @Override
             public boolean canOpenEdge(int x, int y, int dir)
             {
@@ -83,6 +89,9 @@ public final class Reachability
                 return false;
             }
         };
+
+        /** Data-table passages that start on this tile, as a flat {@code [toX, toY, toX, toY...]}, or null. */
+        int[] from(int x, int y);
 
         /** True if the wall on the edge leaving (x,y) towards {@code dir} is a door/gate you can open. */
         boolean canOpenEdge(int x, int y, int dir);
@@ -112,7 +121,7 @@ public final class Reachability
 
     public static final class Result
     {
-        /** {@link #NONE}, {@link #REACHED} or {@link #NEARBY}. */
+        /** 0 = not reached, otherwise hop + 1. */
         public final byte[][] tier;
         /** Per tile bitmask (1 << dir) of edges that are passages, so the overlay can colour them. */
         public final byte[][] passageEdges;
@@ -131,9 +140,14 @@ public final class Reachability
         }
     }
 
-    public static Result compute(int[][] flags, int startX, int startY, int nearbyRange, Passages passages)
+    public static Result compute(int[][] flags, int startX, int startY, int maxHops, Passages passages)
     {
-        Reachability r = new Reachability(flags, passages);
+        return compute(flags, startX, startY, maxHops, 0, passages);
+    }
+
+    public static Result compute(int[][] flags, int startX, int startY, int maxHops, int nearbyRange, Passages passages)
+    {
+        Reachability r = new Reachability(flags, passages, maxHops);
         Result result = r.run(startX, startY);
         r.fillNearby(nearbyRange);
         return result;
@@ -143,16 +157,18 @@ public final class Reachability
 
     private final int[][] flags;
     private final Passages passages;
+    private final int maxHops;
     private final int w, h;
     private final byte[][] tier;
     private final byte[][] passageEdges;
     private final List<Link> links = new ArrayList<>();
     private final Set<Long> seenLinks = new HashSet<>();
 
-    private Reachability(int[][] flags, Passages passages)
+    private Reachability(int[][] flags, Passages passages, int maxHops)
     {
         this.flags = flags;
         this.passages = passages;
+        this.maxHops = Math.max(0, maxHops);
         this.w = flags.length;
         this.h = w == 0 ? 0 : flags[0].length;
         this.tier = new byte[w][h];
@@ -167,52 +183,99 @@ public final class Reachability
         }
 
         int[] queue = new int[w * h];
-        int head = 0, tail = 0;
-        tier[startX][startY] = REACHED;
-        queue[tail++] = startX * h + startY;
+        List<Integer> seeds = new ArrayList<>();
+        seeds.add(startX * h + startY);
 
-        while (head < tail)
+        for (int hop = 0; hop <= maxHops && !seeds.isEmpty(); hop++)
         {
-            int c = queue[head++];
-            int x = c / h, y = c % h;
+            byte t = (byte) (hop + 1);
+            boolean canSeed = hop < maxHops;
+            int head = 0, tail = 0;
 
-            for (int d = 0; d < 4; d++)
+            for (int s : seeds)
             {
-                int nx = x + DX[d], ny = y + DY[d];
-                if (nx < 0 || ny < 0 || nx >= w || ny >= h)
+                int x = s / h, y = s % h;
+                if (tier[x][y] == NONE)
                 {
-                    continue;
+                    tier[x][y] = t;
+                    queue[tail++] = s;
                 }
+            }
+            List<Integer> next = new ArrayList<>();
 
-                boolean nFull = fullyBlocked(flags[nx][ny]);
-                boolean wall = edgeBlocked(flags, x, y, d);
+            while (head < tail)
+            {
+                int c = queue[head++];
+                int x = c / h, y = c % h;
 
-                if (!nFull && !wall)
+                // Passages from the transport table that start on this tile.
+                int[] dp = passages.from(x, y);
+                if (dp != null)
                 {
-                    if (tier[nx][ny] == NONE)
+                    for (int i = 0; i + 1 < dp.length; i += 2)
                     {
-                        tier[nx][ny] = REACHED;
-                        queue[tail++] = nx * h + ny;
+                        int tx = dp[i], ty = dp[i + 1];
+                        if (tx < 0 || ty < 0 || tx >= w || ty >= h || fullyBlocked(flags[tx][ty]))
+                        {
+                            continue;
+                        }
+                        addLink(x, y, tx, ty);
+                        if (canSeed && tier[tx][ty] == NONE)
+                        {
+                            next.add(tx * h + ty);
+                        }
                     }
                 }
-                else if (!nFull)
+
+                for (int d = 0; d < 4; d++)
                 {
-                    // Only a wall in the way: a door or gate on this edge?
-                    if (passages.canOpenEdge(x, y, d))
+                    int nx = x + DX[d], ny = y + DY[d];
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h)
                     {
-                        addLink(x, y, nx, ny);
+                        continue;
                     }
-                }
-                else if (passages.canOpenTile(nx, ny))
-                {
-                    // A gate-like object occupies the next tile: link to the tile beyond it.
-                    int cx = nx + DX[d], cy = ny + DY[d];
-                    if (cx >= 0 && cy >= 0 && cx < w && cy < h && !fullyBlocked(flags[cx][cy]))
+
+                    boolean nFull = fullyBlocked(flags[nx][ny]);
+                    boolean wall = edgeBlocked(flags, x, y, d);
+
+                    if (!nFull && !wall)
                     {
-                        addLink(x, y, cx, cy);
+                        if (tier[nx][ny] == NONE)
+                        {
+                            tier[nx][ny] = t;
+                            queue[tail++] = nx * h + ny;
+                        }
+                        continue;
+                    }
+
+                    if (!nFull)
+                    {
+                        // Only a wall in the way: a door or gate on this edge?
+                        if (passages.canOpenEdge(x, y, d))
+                        {
+                            addLink(x, y, nx, ny);
+                            if (canSeed && tier[nx][ny] == NONE)
+                            {
+                                next.add(nx * h + ny);
+                            }
+                        }
+                    }
+                    else if (passages.canOpenTile(nx, ny))
+                    {
+                        // A gate-like object occupies the next tile: land on the tile beyond it.
+                        int cx = nx + DX[d], cy = ny + DY[d];
+                        if (cx >= 0 && cy >= 0 && cx < w && cy < h && !fullyBlocked(flags[cx][cy]))
+                        {
+                            addLink(x, y, cx, cy);
+                            if (canSeed && tier[cx][cy] == NONE)
+                            {
+                                next.add(cx * h + cy);
+                            }
+                        }
                     }
                 }
             }
+            seeds = next;
         }
 
         return new Result(tier, passageEdges, links);

@@ -31,17 +31,17 @@ public class ReachabilityTest
     public void fillsAreaWithinRange()
     {
         // x = 7 is 2 tiles from x = 5, so the whole right-hand side is filled, even beyond the range.
-        Reachability.Result r = Reachability.compute(fenced(), 0, 0, 2, Reachability.Passages.NONE);
+        Reachability.Result r = Reachability.compute(fenced(), 0, 0, 0, 2, Reachability.Passages.NONE);
         assertEquals(Reachability.NEARBY, r.tier[7][2]);
         assertEquals(Reachability.NEARBY, r.tier[19][4]);
         assertEquals(Reachability.NONE, r.tier[6][2]);
-        assertEquals(Reachability.REACHED, r.tier[0][0]);
+        assertEquals(1, r.tier[0][0]);
     }
 
     @Test
     public void ignoresAreaOutOfRange()
     {
-        Reachability.Result r = Reachability.compute(fenced(), 0, 0, 1, Reachability.Passages.NONE);
+        Reachability.Result r = Reachability.compute(fenced(), 0, 0, 0, 1, Reachability.Passages.NONE);
         assertEquals(Reachability.NONE, r.tier[7][2]);
     }
 
@@ -55,7 +55,7 @@ public class ReachabilityTest
             flags[9][y] |= CollisionDataFlag.BLOCK_MOVEMENT_EAST;
             flags[10][y] |= CollisionDataFlag.BLOCK_MOVEMENT_WEST;
         }
-        Reachability.Result r = Reachability.compute(flags, 0, 0, 2, Reachability.Passages.NONE);
+        Reachability.Result r = Reachability.compute(flags, 0, 0, 0, 2, Reachability.Passages.NONE);
         assertEquals(Reachability.NEARBY, r.tier[9][2]);
         assertEquals(Reachability.NONE, r.tier[10][2]);
     }

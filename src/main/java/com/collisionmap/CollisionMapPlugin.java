@@ -7,6 +7,7 @@ import net.runelite.api.Client;
 import net.runelite.api.CollisionData;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
+import net.runelite.api.Skill;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.events.DecorativeObjectDespawned;
@@ -17,6 +18,7 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.GroundObjectDespawned;
 import net.runelite.api.events.GroundObjectSpawned;
+import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.WallObjectDespawned;
 import net.runelite.api.events.WallObjectSpawned;
 import net.runelite.client.config.ConfigManager;
@@ -56,6 +58,9 @@ public class CollisionMapPlugin extends Plugin
     private ObjectTracker objectTracker;
 
     @Inject
+    private TransportData transportData;
+
+    @Inject
     private PassageIndex passageIndex;
 
     @Inject
@@ -64,13 +69,15 @@ public class CollisionMapPlugin extends Plugin
     // What the last computation was based on. If none of it changed, the result is still valid.
     private int lastSceneX = -1, lastSceneY = -1, lastPlane = -1, lastBaseX = -1, lastBaseY = -1;
     private int lastTrackerVersion = -1;
-    private int inputVersion;      // bumped by config changes
+    private int inputVersion;      // bumped by config / skill changes
     private int lastInputVersion = -1;
     private int ticksSinceCompute;
+    private final int[] knownLevels = new int[Skill.values().length];
 
     @Override
     protected void startUp() throws Exception
     {
+        transportData.load();
         invalidate();
         overlayManager.add(collisionMapOverlay);
         overlayManager.add(objectMarkerOverlay);
@@ -107,6 +114,18 @@ public class CollisionMapPlugin extends Plugin
         if ("collisionmap".equals(event.getGroup()))
         {
             mapState.bumpConfigVersion();
+            invalidate();
+        }
+    }
+
+    @Subscribe
+    public void onStatChanged(StatChanged event)
+    {
+        // Only a level change can unlock or lock a shortcut.
+        int i = event.getSkill().ordinal();
+        if (knownLevels[i] != event.getLevel())
+        {
+            knownLevels[i] = event.getLevel();
             invalidate();
         }
     }
@@ -217,9 +236,9 @@ public class CollisionMapPlugin extends Plugin
         int[][] flags = maps[plane].getFlags();
         int width = flags.length, height = width == 0 ? 0 : flags[0].length;
 
-        passageIndex.rebuild(width, height, plane);
+        passageIndex.rebuild(width, height, baseX, baseY, plane, client.isInInstancedRegion());
 
-        mapState.set(Reachability.compute(flags, sx, sy, config.nearbyAreaRange(), passageIndex));
+        mapState.set(Reachability.compute(flags, sx, sy, config.doorsToFollow(), config.nearbyAreaRange(), passageIndex));
 
         lastSceneX = sx;
         lastSceneY = sy;

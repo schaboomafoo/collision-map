@@ -1,15 +1,26 @@
 package com.collisionmap;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
+import net.runelite.api.Client;
 import net.runelite.api.ObjectComposition;
 
 /**
- * Answers "is there a door or gate here?" for {@link Reachability}, from live objects in the scene
- * with an "Open" action. Used to colour those edges, not to see past them.
+ * Answers "where can a door, gate or shortcut take me from here?" for {@link Reachability}.
+ *
+ * <p>Two sources:
+ * <ul>
+ *   <li>the bundled transport table (exact: origin tile, destination tile, object id), and</li>
+ *   <li>live objects in the scene with an "Open" action (heuristic: it catches doors the table doesn't
+ *       know about, but can't say where non-adjacent shortcuts lead).</li>
+ * </ul>
  */
 @Singleton
 public class PassageIndex implements Reachability.Passages
@@ -21,19 +32,76 @@ public class PassageIndex implements Reachability.Passages
     private static final Pattern GATE_NAME = Pattern.compile(
         "(?i)\\b(door|gate|doorway|barrier|portcullis|curtain|grill|grille|turnstile|stile|fence)s?\\b");
 
+    private final Client client;
     private final ObjectTracker tracker;
+    private final TransportData transportData;
 
+    private final Map<Integer, int[]> dataFrom = new HashMap<>();
     private byte[][] openEdges = new byte[0][0];
     private boolean[][] openTiles = new boolean[0][0];
 
     @Inject
-    PassageIndex(ObjectTracker tracker)
+    PassageIndex(Client client, ObjectTracker tracker, TransportData transportData)
     {
+        this.client = client;
         this.tracker = tracker;
+        this.transportData = transportData;
     }
 
-    /** Rebuilds the door/gate grids for the current scene and plane. */
-    public void rebuild(int width, int height, int plane)
+    private static int key(int x, int y)
+    {
+        return x << 8 | y;
+    }
+
+    /**
+     * Rebuilds both sources for the current scene and plane.
+     *
+     * @param baseX world x of scene tile 0
+     * @param baseY world y of scene tile 0
+     * @param instance true inside instanced regions, where world coordinates don't map to the table
+     */
+    public void rebuild(int width, int height, int baseX, int baseY, int plane, boolean instance)
+    {
+        rebuildData(width, height, baseX, baseY, plane, instance);
+        rebuildObjects(width, height, plane);
+    }
+
+    private void rebuildData(int width, int height, int baseX, int baseY, int plane, boolean instance)
+    {
+        dataFrom.clear();
+        if (instance)
+        {
+            return;
+        }
+
+        Map<Integer, List<Integer>> tmp = new HashMap<>();
+        for (TransportData.Transport t : transportData.all())
+        {
+            if (t.plane != plane)
+            {
+                continue;
+            }
+            int sx = t.ox - baseX, sy = t.oy - baseY, tx = t.dx - baseX, ty = t.dy - baseY;
+            if (sx < 0 || sy < 0 || sx >= width || sy >= height
+                || tx < 0 || ty < 0 || tx >= width || ty >= height)
+            {
+                continue;
+            }
+            if (!t.skillsMet(client))
+            {
+                continue;
+            }
+            List<Integer> list = tmp.computeIfAbsent(key(sx, sy), k -> new ArrayList<>(2));
+            list.add(tx);
+            list.add(ty);
+        }
+        for (Map.Entry<Integer, List<Integer>> e : tmp.entrySet())
+        {
+            dataFrom.put(e.getKey(), e.getValue().stream().mapToInt(Integer::intValue).toArray());
+        }
+    }
+
+    private void rebuildObjects(int width, int height, int plane)
     {
         if (openEdges.length != width || (width > 0 && openEdges[0].length != height))
         {
@@ -108,6 +176,12 @@ public class PassageIndex implements Reachability.Passages
             }
         }
         return false;
+    }
+
+    @Override
+    public int[] from(int x, int y)
+    {
+        return dataFrom.get(key(x, y));
     }
 
     @Override
