@@ -144,7 +144,9 @@ public interface CollisionMapConfig extends Config
 
     enum BoxStyle
     {
-        /** Outline of the object's model. Needs a 3D model projection per object per frame. */
+        /** One simple outline wrapped around the object's model. Cheap. */
+        HULL,
+        /** The exact click area: every model triangle is projected and merged. The most expensive. */
         CLICKBOX,
         /** Outline of the tiles the object stands on. Much cheaper. */
         TILES,
@@ -155,13 +157,14 @@ public interface CollisionMapConfig extends Config
     @ConfigItem(
           keyName = "boxStyle",
           name = "Outline",
-          description = "Click box: outline the object's model. Tiles: outline the tiles it stands on (much cheaper). None: labels only",
+          description = "Hull: a simple outline around the object (cheap). Click box: the exact click area (expensive)."
+              + " Tiles: the tiles it stands on (cheapest). None: labels only",
           section = objectSection,
           position = 1
     )
     default BoxStyle boxStyle()
     {
-        return BoxStyle.CLICKBOX;
+        return BoxStyle.HULL;
     }
 
     @ConfigItem(

@@ -9,17 +9,21 @@ import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.Shape;
-import java.awt.Stroke;
-import java.util.ArrayList;
+import java.awt.geom.Path2D;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Locale;
 import javax.inject.Inject;
 
 import net.runelite.api.Client;
+import net.runelite.api.DecorativeObject;
+import net.runelite.api.GameObject;
+import net.runelite.api.GroundObject;
 import net.runelite.api.ObjectComposition;
 import net.runelite.api.Perspective;
+import net.runelite.api.Player;
 import net.runelite.api.Point;
+import net.runelite.api.TileObject;
+import net.runelite.api.WallObject;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.client.ui.overlay.Overlay;
@@ -33,8 +37,11 @@ import net.runelite.client.util.Text;
  *
  * <p>Outlines are never filled: a translucent fill has to be blended pixel by pixel and was the
  * bulk of the cost. With the GPU plugin on, outlines are drawn with {@code AlphaComposite.Src} like
- * the walls (see {@link CollisionMapOverlay}). The {@link CollisionMapConfig.BoxStyle#TILES} style
- * skips projecting the object's 3D model ({@code getClickbox()}) entirely.
+ * the walls (see {@link CollisionMapOverlay}).
+ *
+ * <p>The default {@link CollisionMapConfig.BoxStyle#HULL} style wraps one convex outline around the
+ * model. {@code getClickbox()} is far dearer: it projects every model triangle, makes a rectangle
+ * per triangle and unions them, leaving a jagged shape with hundreds of edges to stroke.
  */
 public class ObjectMarkerOverlay extends Overlay
 {
@@ -52,23 +59,6 @@ public class ObjectMarkerOverlay extends Overlay
     private int radius;
     private Color colour;
     private String[] filters = new String[0];
-
-    // The list of objects to draw, rebuilt at most once per game tick.
-    private static final class Marked
-    {
-        final ObjectTracker.Tracked tracked;
-        final String label;
-
-        Marked(ObjectTracker.Tracked tracked, String label)
-        {
-            this.tracked = tracked;
-            this.label = label;
-        }
-    }
-
-    private final List<Marked> marked = new ArrayList<>();
-    private Shape[] boxes = new Shape[64];
-    private int builtTick = -1, builtConfig = -1, builtTracker = -1, builtPlane = -1;
 
     @Inject
     private ObjectMarkerOverlay(Client client, CollisionMapConfig config, ObjectTracker tracker, MapState state)
@@ -104,101 +94,28 @@ public class ObjectMarkerOverlay extends Overlay
         }
 
         WorldView wv = client.getTopLevelWorldView();
-        if (wv == null)
-        {
-            return null;
-        }
-        int plane = wv.getPlane();
-
-        // Deciding which objects to mark (impostor lookups, string matching, label text) only
-        // changes on game ticks, so do it at most once per tick, like tile markers keep a ready list.
-        int tick = client.getTickCount();
-        if (tick != builtTick || snapshotVersion != builtConfig || tracker.version() != builtTracker || plane != builtPlane)
-        {
-            if (!rebuild(plane))
-            {
-                return null;
-            }
-            builtTick = tick;
-            builtConfig = snapshotVersion;
-            builtTracker = tracker.version();
-            builtPlane = plane;
-        }
-        if (marked.isEmpty())
+        Player player = client.getLocalPlayer();
+        if (wv == null || player == null)
         {
             return null;
         }
 
-        int n = marked.size();
-        if (boxes.length < n)
-        {
-            boxes = new Shape[n * 2];
-        }
-
-        // Pass 1: outlines. With the GPU plugin on, overwrite pixels instead of blending (see class doc).
-        Stroke previousStroke = graphics.getStroke();
-        Composite previousComposite = graphics.getComposite();
-        graphics.setStroke(STROKE);
-        graphics.setColor(colour);
-        if (client.isGpu())
-        {
-            graphics.setComposite(AlphaComposite.Src);
-        }
-        for (int k = 0; k < n; k++)
-        {
-            Shape box = outline(marked.get(k).tracked, plane);
-            boxes[k] = box;
-            if (box != null)
-            {
-                graphics.draw(box);
-            }
-        }
-        graphics.setComposite(previousComposite);
-        graphics.setStroke(previousStroke);
-
-        // Pass 2: labels, blended normally so their anti-aliased edges look right.
-        if (labels)
-        {
-            FontMetrics fm = graphics.getFontMetrics();
-            for (int k = 0; k < n; k++)
-            {
-                Marked m = marked.get(k);
-                Point at;
-                if (boxes[k] != null)
-                {
-                    Rectangle b = boxes[k].getBounds();
-                    at = new Point(b.x + b.width / 2 - fm.stringWidth(m.label) / 2, b.y - 4);
-                }
-                else
-                {
-                    at = m.tracked.object.getCanvasTextLocation(graphics, m.label, 0);
-                }
-                if (at != null)
-                {
-                    OverlayUtil.renderTextLocation(graphics, at, m.label, colour);
-                }
-            }
-        }
-        Arrays.fill(boxes, 0, n, null);
-        return null;
-    }
-
-    /** Refills {@link #marked} with the objects to draw around the player. False if there is no player. */
-    private boolean rebuild(int plane)
-    {
-        marked.clear();
         LocalPoint lp = PlayerPosition.onTopLevel(client);
         if (lp == null)
         {
-            return false;
+            return null;
         }
         int px = lp.getSceneX(), py = lp.getSceneY();
-        // The player moves at most two tiles per tick, so pad the radius to cover the whole tick.
-        int r = radius + 2;
+        int plane = wv.getPlane();
+
+        graphics.setStroke(STROKE);
+        boolean gpu = client.isGpu();
+        FontMetrics fm = graphics.getFontMetrics();
 
         for (ObjectTracker.Tracked t : tracker.all())
         {
-            if (t.plane != plane || t.distanceTo(px, py) > r)
+            // Cheap integer checks first; the composition lookup only happens for nearby objects.
+            if (t.plane != plane || t.distanceTo(px, py) > radius)
             {
                 continue;
             }
@@ -212,21 +129,55 @@ public class ObjectMarkerOverlay extends Overlay
             {
                 continue;
             }
-            String label = null;
+
+            Shape box = outline(t, plane);
+            if (box != null)
+            {
+                graphics.setColor(colour);
+                if (gpu)
+                {
+                    // The GPU blends this buffer over the scene, so just overwrite pixels.
+                    Composite previous = graphics.getComposite();
+                    graphics.setComposite(AlphaComposite.Src);
+                    graphics.draw(box);
+                    graphics.setComposite(previous);
+                }
+                else
+                {
+                    graphics.draw(box);
+                }
+            }
+
             if (labels)
             {
                 String name = comp.getName() == null ? "" : Text.removeTags(comp.getName());
-                label = (name.isEmpty() || "null".equals(name) ? "Object" : name) + " (" + action + ")";
+                String text = (name.isEmpty() || "null".equals(name) ? "Object" : name) + " (" + action + ")";
+
+                Point at = null;
+                if (box != null)
+                {
+                    Rectangle b = box.getBounds();
+                    at = new Point(b.x + b.width / 2 - fm.stringWidth(text) / 2, b.y - 4);
+                }
+                else
+                {
+                    at = t.object.getCanvasTextLocation(graphics, text, 0);
+                }
+                if (at != null)
+                {
+                    OverlayUtil.renderTextLocation(graphics, at, text, colour);
+                }
             }
-            marked.add(new Marked(t, label));
         }
-        return true;
+        return null;
     }
 
     private Shape outline(ObjectTracker.Tracked t, int plane)
     {
         switch (style)
         {
+            case HULL:
+                return hull(t.object);
             case CLICKBOX:
                 return t.object.getClickbox();
             case TILES:
@@ -236,6 +187,41 @@ public class ObjectMarkerOverlay extends Overlay
             default:
                 return null;
         }
+    }
+
+    /** Convex hull of the object's model; the cheap "Hull" style of RuneLite's Object Markers. */
+    private static Shape hull(TileObject o)
+    {
+        if (o instanceof GameObject)
+        {
+            return ((GameObject) o).getConvexHull();
+        }
+        if (o instanceof WallObject)
+        {
+            return hull2((WallObject) o);
+        }
+        if (o instanceof DecorativeObject)
+        {
+            return ((DecorativeObject) o).getConvexHull();
+        }
+        if (o instanceof GroundObject)
+        {
+            return ((GroundObject) o).getConvexHull();
+        }
+        return null;
+    }
+
+    /** Wall objects can have two models (e.g. a double door); outline both. */
+    private static Shape hull2(WallObject w)
+    {
+        Shape a = w.getConvexHull(), b = w.getConvexHull2();
+        if (a == null || b == null)
+        {
+            return a != null ? a : b;
+        }
+        Path2D both = new Path2D.Float(a);
+        both.append(b, false);
+        return both;
     }
 
     private String firstMatchingAction(String[] actions)
