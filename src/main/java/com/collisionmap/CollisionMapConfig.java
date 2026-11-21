@@ -85,7 +85,7 @@ public interface CollisionMapConfig extends Config
     )
     default int nearbyAreaRange()
     {
-        return 5;
+        return 0;
     }
 
     // ------------------------------------------------------------------ doors & shortcuts
