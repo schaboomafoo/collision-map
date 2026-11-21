@@ -91,7 +91,11 @@ public class ObjectMarkerOverlay extends Overlay
             return null;
         }
 
-        LocalPoint lp = player.getLocalLocation();
+        LocalPoint lp = PlayerPosition.onTopLevel(client);
+        if (lp == null)
+        {
+            return null;
+        }
         int px = lp.getSceneX(), py = lp.getSceneY();
         int plane = wv.getPlane();
 

@@ -218,7 +218,12 @@ public class CollisionMapPlugin extends Plugin
             return;
         }
 
-        LocalPoint lp = player.getLocalLocation();
+        LocalPoint lp = PlayerPosition.onTopLevel(client);
+        if (lp == null)
+        {
+            mapState.set(null);
+            return;
+        }
         int sx = lp.getSceneX(), sy = lp.getSceneY();
         int baseX = wv.getBaseX(), baseY = wv.getBaseY();
 

@@ -143,7 +143,11 @@ public class CollisionMapOverlay extends Overlay
             return null;
         }
 
-        LocalPoint lp = player.getLocalLocation();
+        LocalPoint lp = PlayerPosition.onTopLevel(client);
+        if (lp == null)
+        {
+            return null;
+        }
         int r = s.radius;
         int tileMinX = Math.max(0, lp.getSceneX() - r), tileMaxX = Math.min(flags.length - 1, lp.getSceneX() + r);
         int tileMinY = Math.max(0, lp.getSceneY() - r), tileMaxY = Math.min(flags[0].length - 1, lp.getSceneY() + r);
