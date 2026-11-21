@@ -100,7 +100,7 @@ public interface CollisionMapConfig extends Config
     )
     default int doorsToFollow()
     {
-        return 1;
+        return 0;
     }
 
     @Alpha
