@@ -74,6 +74,20 @@ public interface CollisionMapConfig extends Config
         return 2;
     }
 
+    @Range(min = 0, max = 10)
+    @ConfigItem(
+          keyName = "nearbyAreaRange",
+          name = "Nearby areas",
+          description = "Also outline separate walkable areas that start within this many tiles of the area you can reach"
+              + " (the other side of a fence, wall or river). 0 = off",
+          section = wallsSection,
+          position = 3
+    )
+    default int nearbyAreaRange()
+    {
+        return 5;
+    }
+
     // ------------------------------------------------------------------ doors & shortcuts
 
     @Range(min = 0, max = 3)
@@ -102,6 +116,18 @@ public interface CollisionMapConfig extends Config
         return new Color(0, 255, 100, 230);
     }
 
+    @ConfigItem(
+          keyName = "shortcutLines",
+          name = "Shortcut lines",
+          description = "Draw a dashed line from each shortcut to where it leads",
+          section = passageSection,
+          position = 2
+    )
+    default boolean shortcutLines()
+    {
+        return false;
+    }
+
     // ------------------------------------------------------------------ objects
 
     @ConfigItem(
@@ -116,12 +142,34 @@ public interface CollisionMapConfig extends Config
         return false;
     }
 
+    enum BoxStyle
+    {
+        /** Outline of the object's model. Needs a 3D model projection per object per frame. */
+        CLICKBOX,
+        /** Outline of the tiles the object stands on. Much cheaper. */
+        TILES,
+        /** Labels only. */
+        NONE
+    }
+
+    @ConfigItem(
+          keyName = "boxStyle",
+          name = "Outline",
+          description = "Click box: outline the object's model. Tiles: outline the tiles it stands on (much cheaper). None: labels only",
+          section = objectSection,
+          position = 1
+    )
+    default BoxStyle boxStyle()
+    {
+        return BoxStyle.CLICKBOX;
+    }
+
     @ConfigItem(
           keyName = "objectLabels",
           name = "Labels",
           description = "Write the object's name and action above it",
           section = objectSection,
-          position = 1
+          position = 2
     )
     default boolean objectLabels()
     {
@@ -134,7 +182,7 @@ public interface CollisionMapConfig extends Config
           name = "Object color",
           description = "Color of click boxes and labels",
           section = objectSection,
-          position = 2
+          position = 3
     )
     default Color objectColor()
     {
@@ -146,7 +194,7 @@ public interface CollisionMapConfig extends Config
           name = "Actions to mark",
           description = "Comma separated. An object is marked if any of its actions starts with one of these",
           section = objectSection,
-          position = 3
+          position = 4
     )
     default String actionFilter()
     {

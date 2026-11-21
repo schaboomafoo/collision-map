@@ -1,7 +1,9 @@
 package com.collisionmap;
 
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Composite;
 import java.awt.Dimension;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
@@ -13,6 +15,7 @@ import javax.inject.Inject;
 
 import net.runelite.api.Client;
 import net.runelite.api.ObjectComposition;
+import net.runelite.api.Perspective;
 import net.runelite.api.Player;
 import net.runelite.api.Point;
 import net.runelite.api.WorldView;
@@ -23,7 +26,14 @@ import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.OverlayUtil;
 import net.runelite.client.util.Text;
 
-/** Click boxes and labels for doors, gates, shortcuts and anything else with a matching action. */
+/**
+ * Outlines and labels for doors, gates, shortcuts and anything else with a matching action.
+ *
+ * <p>Outlines are never filled: a translucent fill has to be blended pixel by pixel and was the
+ * bulk of the cost. With the GPU plugin on, outlines are drawn with {@code AlphaComposite.Src} like
+ * the walls (see {@link CollisionMapOverlay}). The {@link CollisionMapConfig.BoxStyle#TILES} style
+ * skips projecting the object's 3D model ({@code getClickbox()}) entirely.
+ */
 public class ObjectMarkerOverlay extends Overlay
 {
     private final Client client;
@@ -31,11 +41,14 @@ public class ObjectMarkerOverlay extends Overlay
     private final ObjectTracker tracker;
     private final MapState state;
 
+    private static final BasicStroke STROKE = new BasicStroke(1.5f);
+
     // Config proxy calls are slow, so read the config only when it changed.
     private int snapshotVersion = -1;
     private boolean enabled, labels;
+    private CollisionMapConfig.BoxStyle style;
     private int radius;
-    private Color colour, soft;
+    private Color colour;
     private String[] filters = new String[0];
 
     @Inject
@@ -60,7 +73,7 @@ public class ObjectMarkerOverlay extends Overlay
             labels = config.objectLabels();
             radius = config.drawRadius();
             colour = config.objectColor();
-            soft = new Color(colour.getRed(), colour.getGreen(), colour.getBlue(), 35);
+            style = config.boxStyle();
             filters = Arrays.stream(config.actionFilter().split(","))
                 .map(f -> f.trim().toLowerCase(Locale.ROOT))
                 .filter(f -> !f.isEmpty())
@@ -82,7 +95,8 @@ public class ObjectMarkerOverlay extends Overlay
         int px = lp.getSceneX(), py = lp.getSceneY();
         int plane = wv.getPlane();
 
-        graphics.setStroke(new BasicStroke(1.5f));
+        graphics.setStroke(STROKE);
+        boolean gpu = client.isGpu();
         FontMetrics fm = graphics.getFontMetrics();
 
         for (ObjectTracker.Tracked t : tracker.all())
@@ -103,13 +117,22 @@ public class ObjectMarkerOverlay extends Overlay
                 continue;
             }
 
-            Shape box = t.object.getClickbox();
+            Shape box = outline(t, plane);
             if (box != null)
             {
-                graphics.setColor(soft);
-                graphics.fill(box);
                 graphics.setColor(colour);
-                graphics.draw(box);
+                if (gpu)
+                {
+                    // The GPU blends this buffer over the scene, so just overwrite pixels.
+                    Composite previous = graphics.getComposite();
+                    graphics.setComposite(AlphaComposite.Src);
+                    graphics.draw(box);
+                    graphics.setComposite(previous);
+                }
+                else
+                {
+                    graphics.draw(box);
+                }
             }
 
             if (labels)
@@ -134,6 +157,21 @@ public class ObjectMarkerOverlay extends Overlay
             }
         }
         return null;
+    }
+
+    private Shape outline(ObjectTracker.Tracked t, int plane)
+    {
+        switch (style)
+        {
+            case CLICKBOX:
+                return t.object.getClickbox();
+            case TILES:
+                LocalPoint centre = t.object.getLocalLocation(); // game objects: centre of the footprint
+                return centre == null ? null
+                    : Perspective.getCanvasTileAreaPoly(client, centre, t.sizeX, t.sizeY, plane, 0);
+            default:
+                return null;
+        }
     }
 
     private String firstMatchingAction(String[] actions)

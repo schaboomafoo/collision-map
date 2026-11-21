@@ -238,7 +238,7 @@ public class CollisionMapPlugin extends Plugin
 
         passageIndex.rebuild(width, height, baseX, baseY, plane, client.isInInstancedRegion());
 
-        mapState.set(Reachability.compute(flags, sx, sy, config.doorsToFollow(), passageIndex));
+        mapState.set(Reachability.compute(flags, sx, sy, config.doorsToFollow(), config.nearbyAreaRange(), passageIndex));
 
         lastSceneX = sx;
         lastSceneY = sy;

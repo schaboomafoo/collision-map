@@ -1,5 +1,6 @@
 package com.example;
 
+import com.collisionmap.CollisionMapPlugin;
 import net.runelite.client.RuneLite;
 import net.runelite.client.externalplugins.ExternalPluginManager;
 

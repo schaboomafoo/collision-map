@@ -15,6 +15,10 @@ import net.runelite.api.CollisionDataFlag;
  * passages, hop 2 the far side of the passages found in hop 1, and so on up to {@code maxHops}.
  * A tile's {@link Result#tier} is {@code hop + 1}, so 0 ({@link #NONE}) means "not reached".
  *
+ * <p>Optionally, any separate walkable area that comes within {@code nearbyRange} tiles (straight
+ * line, ignoring walls) of the hop areas is filled too, with tier {@link #NEARBY}. That catches the
+ * other side of a fence or river without needing to know which object or shortcut leads there.
+ *
  * <p>Only cardinal steps are needed. OSRS only allows a diagonal step when both of the adjacent
  * cardinal steps are also open, so a cardinal fill reaches exactly the same tiles.
  *
@@ -24,6 +28,8 @@ import net.runelite.api.CollisionDataFlag;
 public final class Reachability
 {
     public static final byte NONE = 0;
+    /** Tier of a nearby area that was found by distance rather than through a passage. */
+    public static final byte NEARBY = -1;
 
     // Directions. Scene y grows to the north, matching the collision flags.
     public static final int N = 0, E = 1, S = 2, W = 3;
@@ -136,7 +142,15 @@ public final class Reachability
 
     public static Result compute(int[][] flags, int startX, int startY, int maxHops, Passages passages)
     {
-        return new Reachability(flags, passages, maxHops).run(startX, startY);
+        return compute(flags, startX, startY, maxHops, 0, passages);
+    }
+
+    public static Result compute(int[][] flags, int startX, int startY, int maxHops, int nearbyRange, Passages passages)
+    {
+        Reachability r = new Reachability(flags, passages, maxHops);
+        Result result = r.run(startX, startY);
+        r.fillNearby(nearbyRange);
+        return result;
     }
 
     // ------------------------------------------------------------------ implementation
@@ -265,6 +279,87 @@ public final class Reachability
         }
 
         return new Result(tier, passageEdges, links);
+    }
+
+    /**
+     * Fills every walkable area that has a tile within {@code range} tiles (Chebyshev, through walls)
+     * of a tile reached so far. Linear in scene size: the "within range" test is a box dilation done
+     * as two sliding-window passes.
+     */
+    private void fillNearby(int range)
+    {
+        if (range <= 0 || w == 0 || h == 0)
+        {
+            return;
+        }
+
+        // rows[x][y] = number of reached tiles in x-range..x+range on row y
+        int[][] rows = new int[w][h];
+        for (int y = 0; y < h; y++)
+        {
+            int count = 0;
+            for (int x = 0; x < Math.min(range, w); x++)
+            {
+                count += tier[x][y] != NONE ? 1 : 0;
+            }
+            for (int x = 0; x < w; x++)
+            {
+                int in = x + range, out = x - range - 1;
+                if (in < w && tier[in][y] != NONE) count++;
+                if (out >= 0 && tier[out][y] != NONE) count--;
+                rows[x][y] = count;
+            }
+        }
+
+        // Same along columns over rows; > 0 means a reached tile is within the box.
+        boolean[][] near = new boolean[w][h];
+        for (int x = 0; x < w; x++)
+        {
+            int[] col = rows[x];
+            int count = 0;
+            for (int y = 0; y < Math.min(range, h); y++)
+            {
+                count += col[y];
+            }
+            for (int y = 0; y < h; y++)
+            {
+                int in = y + range, out = y - range - 1;
+                if (in < h) count += col[in];
+                if (out >= 0) count -= col[out];
+                near[x][y] = count > 0;
+            }
+        }
+
+        int[] queue = new int[w * h];
+        for (int sx = 0; sx < w; sx++)
+        {
+            for (int sy = 0; sy < h; sy++)
+            {
+                if (!near[sx][sy] || tier[sx][sy] != NONE || fullyBlocked(flags[sx][sy]))
+                {
+                    continue;
+                }
+                int head = 0, tail = 0;
+                tier[sx][sy] = NEARBY;
+                queue[tail++] = sx * h + sy;
+                while (head < tail)
+                {
+                    int c = queue[head++];
+                    int x = c / h, y = c % h;
+                    for (int d = 0; d < 4; d++)
+                    {
+                        int nx = x + DX[d], ny = y + DY[d];
+                        if (nx < 0 || ny < 0 || nx >= w || ny >= h || tier[nx][ny] != NONE
+                            || fullyBlocked(flags[nx][ny]) || edgeBlocked(flags, x, y, d))
+                        {
+                            continue;
+                        }
+                        tier[nx][ny] = NEARBY;
+                        queue[tail++] = nx * h + ny;
+                    }
+                }
+            }
+        }
     }
 
     private void addLink(int fx, int fy, int tx, int ty)

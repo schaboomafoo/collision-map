@@ -257,6 +257,12 @@ public class CollisionMapOverlay extends Overlay
         drawEdges(g, WALL, s.wallColor);
         drawEdges(g, DOOR, s.passageColor);
 
+        if (!s.shortcutLines)
+        {
+            g.setStroke(previous);
+            return;
+        }
+
         // Shortcuts and crossings that don't sit on a shared edge: a dashed line to where they lead.
         g.setStroke(s.dashedStroke);
         g.setColor(s.passageColor);
@@ -508,6 +514,7 @@ public class CollisionMapOverlay extends Overlay
     private static final class Settings
     {
         final int radius, pad;
+        final boolean shortcutLines;
         final Color wallColor, passageColor;
         final Stroke wallStroke, dashedStroke;
 
@@ -516,6 +523,7 @@ public class CollisionMapOverlay extends Overlay
             radius = c.drawRadius();
             wallColor = c.wallColor();
             passageColor = c.passageColor();
+            shortcutLines = c.shortcutLines();
             int thickness = c.wallThickness();
             pad = thickness + 2;
             wallStroke = new BasicStroke(thickness, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER);
