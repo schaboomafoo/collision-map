@@ -20,8 +20,8 @@ public interface CollisionMapConfig extends Config
     String wallsSection = "walls";
 
     @ConfigSection(
-          name = "Doors & shortcuts",
-          description = "Ways out of the area you are in",
+          name = "Doors & gates",
+          description = "Doors and gates that lead out of the area you are in",
           position = 1
     )
     String passageSection = "passages";
@@ -90,26 +90,13 @@ public interface CollisionMapConfig extends Config
 
     // ------------------------------------------------------------------ doors & shortcuts
 
-    @Range(min = 0, max = 3)
-    @ConfigItem(
-          keyName = "doorsToFollow",
-          name = "Look through doors",
-          description = "How many doors/shortcuts deep to show. 0 = only your area (doors are still marked), 1 = also the area behind each door, and so on",
-          section = passageSection,
-          position = 0
-    )
-    default int doorsToFollow()
-    {
-        return 1;
-    }
-
     @Alpha
     @ConfigItem(
           keyName = "passageColor",
           name = "Door color",
-          description = "Color of doors, gates and shortcuts that lead out of your area",
+          description = "Color of doors and gates that lead out of your area",
           section = passageSection,
-          position = 1
+          position = 0
     )
     default Color passageColor()
     {
@@ -118,10 +105,10 @@ public interface CollisionMapConfig extends Config
 
     @ConfigItem(
           keyName = "shortcutLines",
-          name = "Shortcut lines",
-          description = "Draw a dashed line from each shortcut to where it leads",
+          name = "Gate crossing lines",
+          description = "Draw a dashed line across gates that take up a whole tile, to where they lead",
           section = passageSection,
-          position = 2
+          position = 1
     )
     default boolean shortcutLines()
     {
